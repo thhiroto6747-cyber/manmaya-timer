@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>萬屋一括管理 Ver.12</title>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+
+    <style>
+        /* ================= Common ================= */
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+            background-color: #000; color: #fff; margin: 0; padding: 0;
+            height: 100vh; display: flex; flex-direction: column;
+            user-select: none; -webkit-user-select: none;
+            padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom);
+        }
+        header {
+            background-color: #1c1c1e; height: 50px; flex-shrink: 0;
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 0 12px; border-bottom: 1px solid #333;
+        }
+        .clock-area { display: flex; align-items: center; }
+        .date-display { font-size: 0.9rem; color: #bbb; margin-right: 10px; font-weight: bold; }
+        .floor-switcher { display: flex; background: #333; border-radius: 8px; padding: 3px; }
+        .floor-btn { padding: 6px 24px; font-weight: bold; font-size: 1rem; color: #888; border-radius: 6px; cursor: pointer; text-align: center; }
+        .floor-btn.active { background: #555; color: #fff; }
+        #main-view { flex-grow: 1; overflow: hidden; position: relative; }
+
+        /* ================= List View ================= */
+        .view-list { display: none; flex-direction: column; height: 100%; }
+        .view-list.active-view { display: flex; }
+        .tab-container { display: flex; height: 48px; background: #2c2c2e; border-bottom: 1px solid #444; flex-shrink: 0; }
+        .tab { flex: 1; display: flex; justify-content: center; align-items: center; color: #888; font-weight: bold; position: relative; font-size: 1rem; }
+        .tab.active { color: #fff; background: #3a3a3c; }
+        .tab.active::after { content:''; position:absolute; bottom:0; left:0; width:100%; height:3px; background:#0a84ff; }
+        .badge { background: #ff453a; color: #fff; font-size: 0.7rem; padding: 2px 6px; border-radius: 10px; margin-left: 6px; display: none; }
+        .list-scroll { flex-grow: 1; overflow-y: auto; padding: 10px; display: none; flex-direction: column; gap: 10px; -webkit-overflow-scrolling: touch;}
+        .list-scroll.active-list { display: flex; }
+        .list-item { background: #1c1c1e; border-radius: 10px; padding: 12px; display: grid; grid-template-columns: 70px 1fr 80px; gap: 12px; align-items: center; border-left: 5px solid transparent; }
+        .list-name { font-size: 1.4rem; font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .list-center { text-align: center; display: flex; flex-direction: column; justify-content: center; }
+        .list-timer { font-size: 2rem; font-weight: bold; font-family: monospace; line-height: 1; cursor: pointer; }
+        .list-sub { font-size: 0.8rem; color: #888; margin-top: 2px; }
+        .btn-sm { width: 100%; height: 40px; border: none; border-radius: 6px; font-weight: bold; color: #fff; font-size: 0.9rem; }
+
+        /* ================= Grid View ================= */
+        .view-grid { display: none; flex-direction: column; height: 100%; padding: 6px; box-sizing: border-box; gap: 6px; }
+        .view-grid.active-view { display: flex; }
+        .grid-floor-container { display: none; flex-direction: column; flex: 1; gap: 6px; }
+        .grid-floor-container.active-grid { display: flex; }
+        .seat-row { display: flex; gap: 6px; flex: 1; min-height: 0; }
+        .seat-card { flex: 1; background-color: #333; border-radius: 8px; padding: 6px 8px; display: flex; flex-direction: column; justify-content: space-between; border: 3px solid transparent; position: relative; }
+        .card-top { display: flex; justify-content: space-between; align-items: flex-start; }
+        .seat-name-lg { font-size: 1.8rem; font-weight: 800; line-height: 1; }
+        .guest-count { font-size: 1.2rem; color: #81ecec; margin-left: 4px; vertical-align: bottom; cursor: pointer;}
+        .card-middle { flex-grow: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; overflow: hidden; }
+        .main-timer-lg { font-size: 3.5rem; font-weight: bold; font-family: monospace; letter-spacing: -2px; line-height: 1; margin-top:-2px; cursor: pointer;}
+        .sub-timer-lg { font-size: 0.9rem; color: #aaa; white-space: nowrap; }
+        .btn-lg { width: 100%; height: 50px; font-size: 1.3rem; font-weight: bold; border: none; border-radius: 6px; color: #fff; margin-top: 2px; }
+        
+        /* Colors & Status */
+        .st-active { border-color: #0a84ff; } 
+        .st-lo { background: #ffcc00; color: #000 !important; }
+        .card-lo { background-color: #5e5000; border-color: #ffcc00; }
+        .st-over { border-color: #ff453a; }
+        .card-over { background-color: #5a1a1a; border-color: #ff453a; }
+        .st-pay { border-color: #ff9f0a; }
+        .bg-pay { background-color: #2a1e10; }
+        .card-pay { background-color: #664400; border: 3px solid #ff9f0a; }
+        .st-clean { border-color: #bf5af2; border-style: dashed; }
+        .bg-clean { background-color: #1e102a; }
+        .card-clean { background-color: #3a1e47; border: 3px dashed #d980fa; }
+        .badge-status { font-size:0.7rem; padding:2px 6px; border-radius:4px; display:inline-block; margin-bottom:2px; }
+        .urgent { animation: blink 1s infinite; }
+        @keyframes blink { 50% { opacity: 0.7; background-color: #5a1a1a; border-color: red; } }
+        .btn-blue { background: #0a84ff; } .btn-org { background: #ff9f0a; color: #000; } .btn-purp { background: #bf5af2; } .btn-gray { background: #6c757d; border: 1px solid #aaa; } .btn-cancel { background: #333; color: #aaa; border: 1px solid #666; }
+        .grp { width: 20px; height: 20px; border-radius: 50%; background: #555; border: 1px solid #aaa; cursor: pointer; }
+
+        /* Numpad */
+        #numpad { display: none; position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.9); z-index: 9999; justify-content: center; align-items: center; flex-direction: column; }
+        .pad-box { width: 320px; background: #2c2c2e; border-radius: 16px; padding: 20px; }
+        .pad-disp { background: #000; color: #fff; font-size: 2.5rem; text-align: center; padding: 10px; margin-bottom: 10px; border-radius: 8px; min-height: 50px; }
+        .pad-keys { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+        .pk { height: 65px; font-size: 2rem; background: #444; color: #fff; border: none; border-radius: 8px; }
+        .pk:active { background: #666; }
+        .pk-ent { background: #0a84ff; font-size: 1.2rem; } .pk-clr { background: #ff453a; font-size: 1.2rem; } .pk-cncl { grid-column: span 3; height: 45px; font-size: 1rem; background: #333; color: #aaa; margin-top: 10px;}
+        @media (max-width: 768px) {
+            .list-item { padding: 10px; gap: 8px; } .list-timer { font-size: 1.8rem; } .btn-sm { font-size: 0.8rem; }
+            #numpad { align-items: flex-end; } .pad-box { width: 100%; border-radius: 16px 16px 0 0; padding-bottom: 40px; }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="clock-area">
+            <div class="date-display" id="date-display">--/-- --:--</div>
+            <canvas id="analogClock" width="30" height="30" style="background:#fff; border-radius:50%;"></canvas>
+        </div>
+        <div class="floor-switcher">
+            <div class="floor-btn" id="btn-floor-1" onclick="changeFloor('1F')">1F</div>
+            <div class="floor-btn active" id="btn-floor-2" onclick="changeFloor('2F')">2F</div>
+        </div>
+    </header>
+
+    <div id="main-view">
+        <div id="view-list" class="view-list">
+            <div class="tab-container">
+                <div class="tab active" id="tab-empty" onclick="switchListTab('empty')">空席 <span class="badge" id="cnt-empty">0</span></div>
+                <div class="tab" id="tab-active" onclick="switchListTab('active')">使用中 <span class="badge" id="cnt-active">0</span></div>
+            </div>
+            <div id="list-empty" class="list-scroll active-list"></div>
+            <div id="list-active" class="list-scroll"></div>
+        </div>
+        <div id="view-grid" class="view-grid">
+            <div id="grid-1f" class="grid-floor-container">
+                <div class="seat-row" id="row-g-1f-1"></div>
+                <div class="seat-row" id="row-g-1f-2"></div>
+                <div class="seat-row" style="flex-grow:0.001;"></div>
+            </div>
+            <div id="grid-2f" class="grid-floor-container">
+                <div class="seat-row" id="row-g-2f-1"></div>
+                <div class="seat-row" id="row-g-2f-2"></div>
+                <div class="seat-row" id="row-g-2f-3"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="numpad">
+        <div class="pad-box">
+            <div style="text-align:center; color:#ccc; margin-bottom:5px;" id="pad-title">入力</div>
+            <div class="pad-disp" id="pad-val"></div>
+            <div class="pad-keys">
+                <button class="pk" onclick="k('1')">1</button><button class="pk" onclick="k('2')">2</button><button class="pk" onclick="k('3')">3</button>
+                <button class="pk" onclick="k('4')">4</button><button class="pk" onclick="k('5')">5</button><button class="pk" onclick="k('6')">6</button>
+                <button class="pk" onclick="k('7')">7</button><button class="pk" onclick="k('8')">8</button><button class="pk" onclick="k('9')">9</button>
+                <button class="pk pk-clr" onclick="kc()">C</button><button class="pk" onclick="k('0')">0</button><button class="pk pk-ent" onclick="ke()">決定</button>
+                <button class="pk pk-cncl" onclick="kclose()">キャンセル</button>
+            </div>
+        </div>
+    </div>
+    <button onclick="clearAllData()" style="position: fixed; bottom:5px; right:5px; width:30px; height:30px; background:none; border:none; font-size:10px; color:#333;">x</button>
+
+    <script>
+        const firebaseConfig = {
+          apiKey: "AIzaSyA2a8NvpRxsNGqWNEeZecVHMKnukcWhh5U",
+          authDomain: "manmaya-timer.firebaseapp.com",
+          databaseURL: "https://manmaya-timer-default-rtdb.asia-southeast1.firebasedatabase.app",
+          projectId: "manmaya-timer",
+          storageBucket: "manmaya-timer.firebasestorage.app",
+          messagingSenderId: "594736126936",
+          appId: "1:594736126936:web:f511235d4172ab846330ad"
+        };
+        if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+
+        const SEATS = {
+            "2F": ["ハ1", "ハ3", "ハ手", "ハラス", "2-1", "2-2", "2-3左", "2-3右", "オリ右", "オリ左", "①", "②", "③"],
+            "1F": ["くら1", "くら3", "くら5", "くら手", "くらラス", "A", "B左", "B右", "C", "花"]
+        };
+        const HA_COUNTER_2F_INDICES = [0, 1, 2, 3];
+        const TIME_LO = 90, TIME_LIMIT = 120;
+        const STATUS = { EMPTY: 0, ACTIVE: 1, PAYMENT: 2, CLEANING: 3 };
+        let globalData = { "1F": {}, "2F": {} };
+        let currentFloor = '2F', isMobile = window.innerWidth < 768;
+        let currentListTab = 'empty';
+
+        function init() {
+            SEATS["2F"].forEach((n, i) => {
+                let r = (i<=3)?'row-g-2f-1':(i<=7)?'row-g-2f-2':'row-g-2f-3';
+                document.getElementById(r).innerHTML += createGridCard('2F', i, n);
+            });
+            SEATS["1F"].forEach((n, i) => {
+                let r = (i<=4)?'row-g-1f-1':'row-g-1f-2';
+                document.getElementById(r).innerHTML += createGridCard('1F', i, n);
+            });
+            db.ref('seats').on('value', (s) => {
+                const v = s.val();
+                globalData = v || { "1F": {}, "2F": {} };
+                if(!globalData["1F"]) globalData["1F"]={};
+                if(!globalData["2F"]) globalData["2F"]={};
+                render();
+            });
+            window.addEventListener('resize', () => { isMobile = window.innerWidth < 768; render(); });
+            setInterval(updateClock, 1000);
+            setInterval(render, 1000);
+        }
+
+        function render() {
+            let mode = isMobile ? 'list' : 'grid';
+            document.getElementById('view-list').className = (mode==='list') ? 'view-list active-view' : 'view-list';
+            document.getElementById('view-grid').className = (mode==='grid') ? 'view-grid active-view' : 'view-grid';
+            if(mode==='list') renderList(); else renderGrid();
+        }
+
+        function renderList() {
+            const names = SEATS[currentFloor], dataMap = globalData[currentFloor]||{}, now = new Date().getTime();
+            let hE = "", hA = "", cE = 0, cA = 0;
+            names.forEach((name, i) => {
+                const d = dataMap[i];
+                if (!d) {
+                    cE++;
+                    hE += `<div class="list-item"><div class="list-name">${name}</div><div style="text-align:center;color:#444;">--:--</div><button class="btn-sm btn-blue" onclick="act('${currentFloor}',${i},'START')">入店</button></div>`;
+                } else {
+                    cA++;
+                    const st = calcStatus(d, now, 'list', i);
+                    hA += `<div class="list-item ${st.rowClass} ${st.urgent?'urgent':''}"><div><div class="list-name">${name}</div><div style="color:#81ecec;font-size:0.9rem;" onclick="modGuest('${currentFloor}',${i},'${d.guests}')">(${d.guests}名)</div></div><div class="list-center" onclick="modTimer('${currentFloor}',${i})">${st.badgeHtml}<div class="list-timer" style="${st.timerStyle}">${st.mainText}</div><div class="list-sub">${st.subText}</div></div><div>${st.btnHtml}</div></div>`;
+                }
+            });
+            document.getElementById('list-empty').innerHTML = hE; document.getElementById('list-active').innerHTML = hA;
+            const be=document.getElementById('cnt-empty'), ba=document.getElementById('cnt-active');
+            be.textContent=cE; be.style.display=cE>0?'inline-block':'none'; ba.textContent=cA; ba.style.display=cA>0?'inline-block':'none';
+        }
+
+        function renderGrid() {
+            document.getElementById('grid-1f').className = (currentFloor==='1F') ? 'grid-floor-container active-grid' : 'grid-floor-container';
+            document.getElementById('grid-2f').className = (currentFloor==='2F') ? 'grid-floor-container active-grid' : 'grid-floor-container';
+            const names = SEATS[currentFloor], dataMap = globalData[currentFloor]||{}, now = new Date().getTime();
+            names.forEach((name, i) => {
+                const d = dataMap[i], p = (currentFloor==='1F') ? '1F-'+i : '2F-'+i;
+                const elC = document.getElementById(`g-card-${p}`), elM = document.getElementById(`g-main-${p}`), elS = document.getElementById(`g-sub-${p}`), elB = document.getElementById(`g-btn-${p}`), elG = document.getElementById(`g-guest-${p}`), elGr = document.getElementById(`g-grp-${p}`);
+                if(currentFloor==='2F') elGr.style.background = ['#555','#ff453a','#0a84ff','#30d158','#bf5af2'][d?(d.group||0):0]; else elGr.style.display='none';
+                if (!d) {
+                    elC.className = 'seat-card'; elM.textContent="--:--"; elM.style.color="#666"; elS.textContent=""; elG.textContent="";
+                    elB.innerHTML = `<button class="btn-lg btn-blue" onclick="act('${currentFloor}',${i},'START')">入店開始</button>`;
+                } else {
+                    elG.textContent = `(${d.guests}名)`; elM.style.color="#fff";
+                    const st = calcStatus(d, now, 'grid', i);
+                    elC.className = `seat-card ${st.cardClass} ${st.urgent?'urgent':''}`; elM.textContent = st.mainText; elS.innerHTML = st.subText; elB.innerHTML = st.btnHtml;
+                }
+            });
+        }
+
+        function calcStatus(d, now, mode, i) {
+            const elap = Math.floor((now - d.startTime)/1000), remLO = (TIME_LO*60)-elap, remEx = (TIME_LIMIT*60)-elap;
+            const fmt=s=>{const m=Math.floor(Math.abs(s)/60), ss=Math.abs(s)%60; return (s<0?"-":"")+m+":"+String(ss).padStart(2,'0');};
+            const mkB=(t,b,c="#fff")=>`<div class="badge-status" style="background:${b};color:${c};">${t}</div>`;
+            let mt=fmt(remLO), st="退店まで "+fmt(remEx), rc="st-active", cc="st-active", bh=mkB("入店中","#0a84ff"), ts="", btn="", urg=false;
+
+            if(d.status === STATUS.PAYMENT) {
+                rc="st-pay bg-pay"; cc="card-pay"; bh=mkB("会計中","#ff9f0a","#000");
+                // ★ここを修正！会計中はメインタイマーを「退店まで」に切り替え
+                mt = fmt(remEx); st = "L.O.済み";
+                
+                btn = `<button class="${mode=='grid'?'btn-lg':'btn-sm'} btn-purp" onclick="act('${currentFloor}',${i},'CLEAN')">退店・片付</button>`;
+                btn += `<button class="btn-cancel" style="width:100%;margin-top:2px;height:${mode=='grid'?'30px':'25px'}" onclick="act('${currentFloor}',${i},'BACK')">戻る</button>`;
+            } else if(d.status === STATUS.CLEANING) {
+                rc="st-clean bg-clean"; cc="card-clean"; bh=mkB("片付中","#bf5af2");
+                if(d.nextReservation) {
+                    const diff = Math.floor((d.nextReservation-now)/1000); if(diff<15*60) urg=true;
+                    mt=fmt(diff); ts="color:#ff6b6b;"; let dt=new Date(d.nextReservation); st=`<span style="color:#ff6b6b;font-weight:bold;">次 ${dt.getHours()}:${String(dt.getMinutes()).padStart(2,'0')}</span>`;
+                } else { mt="Clean"; ts="color:#bf5af2;"; st="セットしてください"; }
+                btn = `<button class="${mode=='grid'?'btn-lg':'btn-sm'} btn-gray" onclick="act('${currentFloor}',${i},'FINISH')">完了</button>`;
+                btn += `<button class="btn-cancel" style="width:100%;margin-top:2px;height:${mode=='grid'?'30px':'25px'}" onclick="act('${currentFloor}',${i},'BACK')">戻る</button>`;
+            } else {
+                if(remEx<0) { rc="st-over"; cc="card-over"; bh=mkB("退店時間","#ff453a"); } else if(remLO<0) { rc="st-lo"; cc="card-lo"; bh=mkB("L.O.超過","#ffcc00","#000"); }
+                btn = `<button class="${mode=='grid'?'btn-lg':'btn-sm'} btn-org" onclick="act('${currentFloor}',${i},'PAY')">お会計</button>`;
+            }
+            return { mainText:mt, subText:st, rowClass:rc, cardClass:cc, badgeHtml:bh, timerStyle:ts, btnHtml:btn, urgent:urg };
+        }
+
+        function act(f, i, t) {
+            const p = `seats/${f}/${i}`, now = new Date().getTime();
+            if(t==='START') {
+                const startFn = (gst) => {
+                    db.ref(p).set({startTime:now, status:STATUS.ACTIVE, guests:gst, group:0});
+                    if(isMobile||f==='1F') switchListTab('active');
+                };
+                if(f==='2F' && HA_COUNTER_2F_INDICES.includes(i)) startFn("2");
+                else openPad("何名様ですか？","",false, v=> { if(v) startFn(v); });
+            } else if(t==='PAY') db.ref(p+'/status').set(STATUS.PAYMENT);
+            else if(t==='CLEAN') db.ref(p).update({status:STATUS.CLEANING, nextReservation:null});
+            else if(t==='FINISH') {
+                db.ref(p).remove();
+                // ★完了時に強制的にローカルデータを消す（体感速度アップ＆消えないバグ防止）
+                if(globalData[f] && globalData[f][i]) delete globalData[f][i];
+                render();
+            } else if(t==='BACK') {
+                db.ref(p).once('value').then(s=>{
+                    const d=s.val();
+                    if(d.status===STATUS.PAYMENT) db.ref(p+'/status').set(STATUS.ACTIVE);
+                    else if(d.status===STATUS.CLEANING) db.ref(p).update({status:STATUS.PAYMENT, nextReservation:null});
+                });
+            }
+        }
+
+        function toggleGroup(i) { db.ref(`seats/2F/${i}/group`).transaction(g=>(g||0)+1>4?0:(g||0)+1); }
+        function changeFloor(f){ currentFloor=f; document.getElementById('btn-floor-1').className=f==='1F'?'floor-btn active':'floor-btn'; document.getElementById('btn-floor-2').className=f==='2F'?'floor-btn active':'floor-btn'; render(); }
+        function switchListTab(t){ currentListTab=t; document.getElementById('tab-empty').className=t==='empty'?'tab active':'tab'; document.getElementById('tab-active').className=t==='active'?'tab active':'tab'; document.getElementById('list-empty').className=t==='empty'?'list-scroll active-list':'list-scroll'; document.getElementById('list-active').className=t==='active'?'list-scroll active-list':'list-scroll'; }
+        function modGuest(f,i,c){ openPad("人数修正",c,false,v=>{if(v)db.ref(`seats/${f}/${i}/guests`).set(v);}); }
+        function modTimer(f,i){ const p=`seats/${f}/${i}`; db.ref(p).once('value').then(s=>{const d=s.val();if(!d)return; if(d.status===STATUS.CLEANING){openPad("次予約(例1930)","",true,v=>{if(v.length>2){const h=parseInt(v.slice(0,-2)),m=parseInt(v.slice(-2)),nd=new Date();nd.setHours(h);nd.setMinutes(m);nd.setSeconds(0);if(nd.getTime()<new Date().getTime())nd.setDate(nd.getDate()+1);db.ref(p+'/nextReservation').set(nd.getTime());}});} else{const c=new Date(d.startTime),def=`${c.getHours()}${String(c.getMinutes()).padStart(2,'0')}`;openPad("時刻修正(例1730)",def,true,v=>{if(v.length>2){const h=parseInt(v.slice(0,-2)),m=parseInt(v.slice(-2)),nd=new Date(d.startTime);nd.setHours(h);nd.setMinutes(m);db.ref(p+'/startTime').set(nd.getTime());}});}}); }
+        function updateClock(){const n=new Date(),d=['日','月','火','水','木','金','土'];document.getElementById('date-display').textContent=`${n.getMonth()+1}/${n.getDate()}(${d[n.getDay()]}) ${String(n.getHours()).padStart(2,'0')}:${String(n.getMinutes()).padStart(2,'0')}`;const c=document.getElementById('analogClock').getContext('2d');c.resetTransform();c.clearRect(0,0,30,30);c.translate(15,15);c.beginPath();c.arc(0,0,14,0,2*Math.PI);c.fillStyle='#fff';c.fill();let h=n.getHours()%12,m=n.getMinutes();h=(h*Math.PI/6)+(m*Math.PI/360);m=m*Math.PI/30;c.lineWidth=2;c.strokeStyle='#333';c.beginPath();c.moveTo(0,0);c.rotate(h);c.lineTo(0,-8);c.stroke();c.rotate(-h);c.beginPath();c.moveTo(0,0);c.rotate(m);c.lineTo(0,-12);c.stroke();c.rotate(-m);}
+        let pCb=null,pV="",iTm=false;
+        function openPad(t,d,m,c){document.getElementById('numpad').style.display='flex';document.getElementById('pad-title').textContent=t;pV=d?String(d):"";iTm=m;pCb=c;upP();}
+        function kclose(){document.getElementById('numpad').style.display='none';pCb=null;} function k(n){if(pV.length>4)return;pV+=n;upP();} function kc(){pV="";upP();} function ke(){if(pCb)pCb(pV);kclose();} function upP(){let d=pV;if(iTm&&pV.length>=3)d=pV.slice(0,-2)+":"+pV.slice(-2);document.getElementById('pad-val').textContent=d;}
+        function createGridCard(f,i,n){const id=f+'-'+i;return `<div class="seat-card" id="g-card-${id}"><div class="card-top"><div style="display:flex;"><div class="seat-name-lg">${n}</div><div class="guest-count" id="g-guest-${id}" onclick="modGuest('${f}',${i})"></div></div><div class="grp" id="g-grp-${id}" onclick="toggleGroup(${i})"></div></div><div class="card-middle" onclick="modTimer('${f}',${i})"><div class="main-timer-lg" id="g-main-${id}">--:--</div><div class="sub-timer-lg" id="g-sub-${id}"></div></div><div id="g-btn-${id}"></div></div>`;}
+        function clearAllData(){if(confirm("全消去?")){db.ref('seats').remove();location.reload();}}
+
+        init();
+    </script>
+</body>
+</html>
